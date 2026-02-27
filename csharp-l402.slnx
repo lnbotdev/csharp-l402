@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LnBot.L402.AspNetCore/LnBot.L402.AspNetCore.csproj" />
+    <Project Path="src/LnBot.L402/LnBot.L402.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LnBot.L402.AspNetCore.Tests/LnBot.L402.AspNetCore.Tests.csproj" />
+    <Project Path="tests/LnBot.L402.Tests/LnBot.L402.Tests.csproj" />
+  </Folder>
+</Solution>

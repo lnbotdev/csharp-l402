@@ -1,0 +1,30 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Test
+        run: dotnet test --verbosity normal
+
+      - name: Pack LnBot.L402
+        run: dotnet pack src/LnBot.L402/LnBot.L402.csproj -c Release -o ./nupkg
+
+      - name: Pack LnBot.L402.AspNetCore
+        run: dotnet pack src/LnBot.L402.AspNetCore/LnBot.L402.AspNetCore.csproj -c Release -o ./nupkg
+
+      - name: Publish to NuGet
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json

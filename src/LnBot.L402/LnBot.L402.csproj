@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>LnBot.L402</RootNamespace>
+
+    <PackageId>LnBot.L402</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>LnBot</Authors>
+    <Description>L402 Lightning payment client for .NET — auto-pay any L402-protected API</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://ln.bot</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/lnbotdev/csharp-l402</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>l402;lightning;bitcoin;paywall;micropayments;402;httpclient;lnbot;api-monetization;ai-agents</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LnBot.L402.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LnBot" Version="0.5.0" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>
