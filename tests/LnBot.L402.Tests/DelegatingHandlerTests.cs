@@ -200,6 +200,39 @@ public class DelegatingHandlerTests
 
         await Assert.ThrowsAsync<L402PaymentFailedException>(() => http.GetAsync("/fail"));
     }
+
+    [Fact]
+    public async Task RetryStill402_ThrowsPaymentFailedException()
+    {
+        var (lnClient, sdkHandler) = CreateMockSdk();
+
+        sdkHandler.SetResponse("/v1/l402/pay", new
+        {
+            authorization = "L402 mac:pre",
+            paymentHash = "hash",
+            preimage = "pre",
+            amount = 10,
+            fee = 0,
+            paymentNumber = 1,
+            status = "settled",
+        });
+
+        var inner = new MockInnerHandler();
+        inner.SetHandler(_ =>
+        {
+            var res = new HttpResponseMessage((HttpStatusCode)402)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { price = 10 }, JsonOptions))
+            };
+            res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"inv\"");
+            return res;
+        });
+
+        using var http = CreateTestClient(inner, lnClient);
+
+        var ex = await Assert.ThrowsAsync<L402PaymentFailedException>(() => http.GetAsync("/stuck"));
+        Assert.Contains("402 after successful payment", ex.Message);
+    }
 }
 
 /// <summary>Mock handler that simulates the protected upstream API.</summary>

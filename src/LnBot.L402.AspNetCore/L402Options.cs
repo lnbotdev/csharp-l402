@@ -13,4 +13,10 @@ public class L402Options
 
     /// <summary>Invoice memo / description.</summary>
     public string? Description { get; set; }
+
+    /// <summary>Challenge expiry in seconds.</summary>
+    public int? ExpirySeconds { get; set; }
+
+    /// <summary>Macaroon caveats to attach.</summary>
+    public List<string>? Caveats { get; set; }
 }

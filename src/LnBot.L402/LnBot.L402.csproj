@@ -8,7 +8,7 @@
     <RootNamespace>LnBot.L402</RootNamespace>
 
     <PackageId>LnBot.L402</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>LnBot</Authors>
     <Description>L402 Lightning payment client for .NET — auto-pay any L402-protected API</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

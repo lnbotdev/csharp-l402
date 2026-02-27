@@ -13,12 +13,16 @@ public class L402Attribute : Attribute, IAsyncActionFilter
 {
     public int Price { get; set; }
     public string? Description { get; set; }
+    public int ExpirySeconds { get; set; }
+    public string[]? Caveats { get; set; }
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         var client = context.HttpContext.RequestServices.GetRequiredService<LnBotClient>();
 
-        if (await L402Handler.HandleAsync(client, context.HttpContext, Price, Description))
+        if (await L402Handler.HandleAsync(client, context.HttpContext, Price, Description,
+            ExpirySeconds > 0 ? ExpirySeconds : null,
+            Caveats?.Length > 0 ? new List<string>(Caveats) : null))
         {
             await next();
         }

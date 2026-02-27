@@ -16,7 +16,9 @@ internal static class L402Handler
         LnBotClient client,
         HttpContext context,
         int price,
-        string? description)
+        string? description,
+        int? expirySeconds = null,
+        List<string>? caveats = null)
     {
         var authHeader = context.Request.Headers.Authorization.ToString();
 
@@ -45,6 +47,8 @@ internal static class L402Handler
         {
             Amount = price,
             Description = description,
+            ExpirySeconds = expirySeconds,
+            Caveats = caveats,
         }, context.RequestAborted);
 
         context.Response.StatusCode = StatusCodes.Status402PaymentRequired;

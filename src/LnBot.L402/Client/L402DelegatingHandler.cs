@@ -91,12 +91,17 @@ public class L402DelegatingHandler : DelegatingHandler
                 ? DateTimeOffset.UtcNow.AddSeconds(body.Expiry.Value)
                 : null,
         });
-        _budget.Record(price);
+        _budget.Record((int)payment.Amount);
 
         // Step 7: Retry with L402 Authorization
         var retry = CloneRequest(request, contentBytes, contentType);
         retry.Headers.TryAddWithoutValidation("Authorization", payment.Authorization);
-        return await base.SendAsync(retry, cancellationToken);
+        var retryResponse = await base.SendAsync(retry, cancellationToken);
+
+        if ((int)retryResponse.StatusCode == 402)
+            throw new L402PaymentFailedException("Server returned 402 after successful payment");
+
+        return retryResponse;
     }
 
     private static HttpRequestMessage CloneRequest(
