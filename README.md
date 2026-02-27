@@ -44,7 +44,7 @@ dotnet add package LnBot.L402              # Client only (no ASP.NET Core depend
 
 ```csharp
 using LnBot;
-using LnBot.L402.AspNetCore;
+using LnBot.L402;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(new LnBotClient("key_..."));

@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace LnBot.L402.AspNetCore;
+namespace LnBot.L402;
 
 public static class L402Extensions
 {

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace LnBot.L402.AspNetCore;
+namespace LnBot.L402;
 
 /// <summary>
 /// Endpoint filter for minimal APIs that adds L402 paywall protection.

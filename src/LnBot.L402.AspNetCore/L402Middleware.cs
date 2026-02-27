@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Http;
 
-namespace LnBot.L402.AspNetCore;
+namespace LnBot.L402;
 
 /// <summary>
 /// ASP.NET Core middleware that protects all routes under a path prefix with an L402 paywall.

@@ -1,7 +1,7 @@
 using LnBot.Models;
 using Microsoft.AspNetCore.Http;
 
-namespace LnBot.L402.AspNetCore;
+namespace LnBot.L402;
 
 /// <summary>
 /// Shared L402 verify-or-challenge logic used by middleware, attribute, and endpoint filter.

@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Http;
 
-namespace LnBot.L402.AspNetCore;
+namespace LnBot.L402;
 
 /// <summary>Server-side L402 paywall options.</summary>
 public class L402Options
