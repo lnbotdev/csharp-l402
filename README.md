@@ -57,7 +57,11 @@ app.UseL402Paywall("/api/premium", new L402Options
     Description = "API access",
 });
 
-app.MapGet("/api/premium/data", () => Results.Ok(new { data = "premium content" }));
+app.MapGet("/api/premium/data", (HttpContext context) =>
+{
+    var l402 = context.GetL402();
+    return Results.Ok(new { data = "premium content", paymentHash = l402?.PaymentHash });
+});
 app.MapGet("/api/free/health", () => Results.Ok(new { status = "ok" }));
 
 app.Run();
@@ -70,7 +74,7 @@ app.Run();
 [Route("api/[controller]")]
 public class WeatherController : ControllerBase
 {
-    [L402(Price = 50, Description = "Weather forecast")]
+    [L402(Price = 50, Description = "Weather forecast", ExpirySeconds = 3600, Caveats = new[] { "tier=pro" })]
     [HttpGet("forecast")]
     public IActionResult GetForecast()
         => Ok(new { forecast = "sunny" });
@@ -95,6 +99,33 @@ app.UseL402Paywall("/api/dynamic", new L402Options
             return Task.FromResult(50);
         return Task.FromResult(5);
     }
+});
+```
+
+### Paywall options
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `Price` | `int` | Price in satoshis per request |
+| `PriceFactory` | `Func<HttpContext, Task<int>>?` | Dynamic pricing callback (takes precedence over `Price`) |
+| `Description` | `string?` | Invoice memo shown in wallets |
+| `ExpirySeconds` | `int?` | Challenge expiry in seconds |
+| `Caveats` | `List<string>?` | Macaroon caveats to attach |
+
+### Accessing L402 data after verification
+
+After a successful paywall check, use the `GetL402()` extension method to access the verification result:
+
+```csharp
+app.MapGet("/api/premium/data", (HttpContext context) =>
+{
+    var l402 = context.GetL402();
+    return Results.Ok(new
+    {
+        data = "premium content",
+        paymentHash = l402?.PaymentHash,
+        caveats = l402?.Caveats,
+    });
 });
 ```
 
