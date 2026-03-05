@@ -5,6 +5,9 @@ namespace LnBot.L402;
 /// <summary>Server-side L402 paywall options.</summary>
 public class L402Options
 {
+    /// <summary>LnBot wallet ID to use for L402 challenges and verification.</summary>
+    public string WalletId { get; set; } = "";
+
     /// <summary>Static price in sats per request.</summary>
     public int Price { get; set; }
 

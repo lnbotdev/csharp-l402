@@ -32,7 +32,7 @@ public class EndpointFilterTests
                     app.UseEndpoints(endpoints =>
                     {
                         endpoints.MapGet("/api/filtered", () => Results.Ok(new { data = "filtered" }))
-                            .AddEndpointFilter(new L402EndpointFilter(25, "Filtered endpoint"));
+                            .AddEndpointFilter(new L402EndpointFilter("wal_test", 25, "Filtered endpoint"));
                     });
                 });
             })
@@ -46,7 +46,7 @@ public class EndpointFilterTests
     {
         var (host, sdkHandler) = CreateTestHost();
 
-        sdkHandler.SetResponse("/v1/l402/challenges", new
+        sdkHandler.SetResponse("/l402/challenges", new
         {
             macaroon = "mac",
             invoice = "inv",
@@ -69,7 +69,7 @@ public class EndpointFilterTests
     {
         var (host, sdkHandler) = CreateTestHost();
 
-        sdkHandler.SetResponse("/v1/l402/verify", new
+        sdkHandler.SetResponse("/l402/verify", new
         {
             valid = true,
             paymentHash = "hash",

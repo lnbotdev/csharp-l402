@@ -32,6 +32,7 @@ public class MiddlewareTests
                     app.UseRouting();
                     app.UseL402Paywall("/api/premium", new L402Options
                     {
+                        WalletId = "wal_test",
                         Price = 10,
                         Description = "Test API",
                     });
@@ -68,7 +69,7 @@ public class MiddlewareTests
     {
         var (host, sdkHandler) = CreateTestHost();
 
-        sdkHandler.SetResponse("/v1/l402/challenges", new
+        sdkHandler.SetResponse("/l402/challenges", new
         {
             macaroon = "test_mac",
             invoice = "lnbc10n1test",
@@ -97,7 +98,7 @@ public class MiddlewareTests
     {
         var (host, sdkHandler) = CreateTestHost();
 
-        sdkHandler.SetResponse("/v1/l402/verify", new
+        sdkHandler.SetResponse("/l402/verify", new
         {
             valid = true,
             paymentHash = "hash123",
@@ -125,14 +126,14 @@ public class MiddlewareTests
     {
         var (host, sdkHandler) = CreateTestHost();
 
-        sdkHandler.SetResponse("/v1/l402/verify", new
+        sdkHandler.SetResponse("/l402/verify", new
         {
             valid = false,
             paymentHash = (string?)null,
             caveats = (List<string>?)null,
             error = "invalid preimage",
         });
-        sdkHandler.SetResponse("/v1/l402/challenges", new
+        sdkHandler.SetResponse("/l402/challenges", new
         {
             macaroon = "new_mac",
             invoice = "lnbc_new",

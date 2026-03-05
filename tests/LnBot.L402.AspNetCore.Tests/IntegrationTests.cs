@@ -23,7 +23,7 @@ public class IntegrationTests
         var serverSdkHttp = new HttpClient(serverSdkHandler) { BaseAddress = new Uri("https://api.ln.bot") };
         var serverLnClient = new LnBotClient("key_server", new LnBotClientOptions { HttpClient = serverSdkHttp });
 
-        serverSdkHandler.SetResponse("/v1/l402/challenges", new
+        serverSdkHandler.SetResponse("/l402/challenges", new
         {
             macaroon = "test_mac",
             invoice = "lnbc10n1test",
@@ -31,7 +31,7 @@ public class IntegrationTests
             expiresAt = "2099-01-01T00:00:00Z",
             wwwAuthenticate = "L402 macaroon=\"test_mac\", invoice=\"lnbc10n1test\"",
         });
-        serverSdkHandler.SetResponse("/v1/l402/verify", new
+        serverSdkHandler.SetResponse("/l402/verify", new
         {
             valid = true,
             paymentHash = "test_hash",
@@ -44,7 +44,7 @@ public class IntegrationTests
         var clientSdkHttp = new HttpClient(clientSdkHandler) { BaseAddress = new Uri("https://api.ln.bot") };
         var clientLnClient = new LnBotClient("key_client", new LnBotClientOptions { HttpClient = clientSdkHttp });
 
-        clientSdkHandler.SetResponse("/v1/l402/pay", new
+        clientSdkHandler.SetResponse("/l402/pay", new
         {
             authorization = "L402 test_mac:test_preimage",
             paymentHash = "test_hash",
@@ -70,6 +70,7 @@ public class IntegrationTests
                     app.UseRouting();
                     app.UseL402Paywall("/api/premium", new L402Options
                     {
+                        WalletId = "wal_test",
                         Price = 10,
                         Description = "Premium API",
                     });
@@ -89,7 +90,7 @@ public class IntegrationTests
         var l402Handler = new L402DelegatingHandler(
             clientLnClient,
             new MemoryTokenStore(),
-            new L402ClientOptions { MaxPrice = 100 })
+            new L402ClientOptions { WalletId = "wal_test", MaxPrice = 100 })
         {
             InnerHandler = testServer.CreateHandler(),
         };

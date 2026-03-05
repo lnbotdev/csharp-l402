@@ -32,7 +32,7 @@ public class L402Middleware
             ? await _options.PriceFactory(context)
             : _options.Price;
 
-        if (await L402Handler.HandleAsync(_client, context, price, _options.Description, _options.ExpirySeconds, _options.Caveats))
+        if (await L402Handler.HandleAsync(_client, _options.WalletId, context, price, _options.Description, _options.ExpirySeconds, _options.Caveats))
         {
             await _next(context);
         }

@@ -27,7 +27,7 @@ public class DelegatingHandlerTests
         L402ClientOptions? options = null,
         ITokenStore? store = null)
     {
-        var handler = new L402DelegatingHandler(lnClient, store ?? new MemoryTokenStore(), options ?? new L402ClientOptions())
+        var handler = new L402DelegatingHandler(lnClient, store ?? new MemoryTokenStore(), options ?? new L402ClientOptions { WalletId = "wal_test" })
         {
             InnerHandler = innerHandler,
         };
@@ -58,7 +58,7 @@ public class DelegatingHandlerTests
         var (lnClient, sdkHandler) = CreateMockSdk();
 
         // SDK: PayAsync returns authorization
-        sdkHandler.SetResponse("/v1/l402/pay", new
+        sdkHandler.SetResponse("/l402/pay", new
         {
             authorization = "L402 mac:preimage",
             paymentHash = "hash123",
@@ -146,7 +146,7 @@ public class DelegatingHandlerTests
             return res;
         });
 
-        using var http = CreateTestClient(inner, lnClient, new L402ClientOptions { MaxPrice = 100 });
+        using var http = CreateTestClient(inner, lnClient, new L402ClientOptions { WalletId = "wal_test", MaxPrice = 100 });
 
         var ex = await Assert.ThrowsAsync<L402BudgetExceededException>(() => http.GetAsync("/expensive"));
         Assert.Contains("500", ex.Message);
@@ -174,7 +174,7 @@ public class DelegatingHandlerTests
     {
         var (lnClient, sdkHandler) = CreateMockSdk();
 
-        sdkHandler.SetResponse("/v1/l402/pay", new
+        sdkHandler.SetResponse("/l402/pay", new
         {
             authorization = (string?)null,
             paymentHash = "hash",
@@ -206,7 +206,7 @@ public class DelegatingHandlerTests
     {
         var (lnClient, sdkHandler) = CreateMockSdk();
 
-        sdkHandler.SetResponse("/v1/l402/pay", new
+        sdkHandler.SetResponse("/l402/pay", new
         {
             authorization = "L402 mac:pre",
             paymentHash = "hash",

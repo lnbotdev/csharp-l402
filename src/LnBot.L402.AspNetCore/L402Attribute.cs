@@ -11,6 +11,7 @@ namespace LnBot.L402;
 [AttributeUsage(AttributeTargets.Method | AttributeTargets.Class)]
 public class L402Attribute : Attribute, IAsyncActionFilter
 {
+    public string WalletId { get; set; } = "";
     public int Price { get; set; }
     public string? Description { get; set; }
     public int ExpirySeconds { get; set; }
@@ -20,7 +21,7 @@ public class L402Attribute : Attribute, IAsyncActionFilter
     {
         var client = context.HttpContext.RequestServices.GetRequiredService<LnBotClient>();
 
-        if (await L402Handler.HandleAsync(client, context.HttpContext, Price, Description,
+        if (await L402Handler.HandleAsync(client, WalletId, context.HttpContext, Price, Description,
             ExpirySeconds > 0 ? ExpirySeconds : null,
             Caveats?.Length > 0 ? new List<string>(Caveats) : null))
         {

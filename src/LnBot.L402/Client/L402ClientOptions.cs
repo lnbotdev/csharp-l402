@@ -3,6 +3,9 @@ namespace LnBot.L402;
 /// <summary>Options for the L402 auto-pay HTTP handler.</summary>
 public class L402ClientOptions
 {
+    /// <summary>LnBot wallet ID to use for L402 payments.</summary>
+    public string WalletId { get; set; } = "";
+
     /// <summary>Max sats to pay for a single request. Default: 1000.</summary>
     public int MaxPrice { get; set; } = 1000;
 

@@ -8,13 +8,15 @@ namespace LnBot.L402;
 /// </summary>
 public class L402EndpointFilter : IEndpointFilter
 {
+    private readonly string _walletId;
     private readonly int _price;
     private readonly string? _description;
     private readonly int? _expirySeconds;
     private readonly List<string>? _caveats;
 
-    public L402EndpointFilter(int price, string? description = null, int? expirySeconds = null, List<string>? caveats = null)
+    public L402EndpointFilter(string walletId, int price, string? description = null, int? expirySeconds = null, List<string>? caveats = null)
     {
+        _walletId = walletId;
         _price = price;
         _description = description;
         _expirySeconds = expirySeconds;
@@ -28,7 +30,7 @@ public class L402EndpointFilter : IEndpointFilter
         var httpContext = context.HttpContext;
         var client = httpContext.RequestServices.GetRequiredService<LnBotClient>();
 
-        if (await L402Handler.HandleAsync(client, httpContext, _price, _description, _expirySeconds, _caveats))
+        if (await L402Handler.HandleAsync(client, _walletId, httpContext, _price, _description, _expirySeconds, _caveats))
         {
             return await next(context);
         }

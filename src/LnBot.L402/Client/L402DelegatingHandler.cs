@@ -72,7 +72,7 @@ public class L402DelegatingHandler : DelegatingHandler
         _budget.Check(price);
 
         // Step 5: Pay via SDK
-        var payment = await _client.L402.PayAsync(new PayL402Request
+        var payment = await _client.Wallet(_options.WalletId).L402.PayAsync(new PayL402Request
         {
             WwwAuthenticate = wwwAuth,
         }, cancellationToken);

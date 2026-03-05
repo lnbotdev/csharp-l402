@@ -14,6 +14,7 @@ internal static class L402Handler
     /// </summary>
     public static async Task<bool> HandleAsync(
         LnBotClient client,
+        string walletId,
         HttpContext context,
         int price,
         string? description,
@@ -26,7 +27,7 @@ internal static class L402Handler
         {
             try
             {
-                var result = await client.L402.VerifyAsync(new VerifyL402Request
+                var result = await client.Wallet(walletId).L402.VerifyAsync(new VerifyL402Request
                 {
                     Authorization = authHeader,
                 }, context.RequestAborted);
@@ -43,7 +44,7 @@ internal static class L402Handler
             }
         }
 
-        var challenge = await client.L402.CreateChallengeAsync(new CreateL402ChallengeRequest
+        var challenge = await client.Wallet(walletId).L402.CreateChallengeAsync(new CreateL402ChallengeRequest
         {
             Amount = price,
             Description = description,
