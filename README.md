@@ -53,6 +53,7 @@ var app = builder.Build();
 
 app.UseL402Paywall("/api/premium", new L402Options
 {
+    WalletId = "wal_...",
     Price = 10,
     Description = "API access",
 });
@@ -74,7 +75,7 @@ app.Run();
 [Route("api/[controller]")]
 public class WeatherController : ControllerBase
 {
-    [L402(Price = 50, Description = "Weather forecast", ExpirySeconds = 3600, Caveats = new[] { "tier=pro" })]
+    [L402(WalletId = "wal_...", Price = 50, Description = "Weather forecast", ExpirySeconds = 3600, Caveats = new[] { "tier=pro" })]
     [HttpGet("forecast")]
     public IActionResult GetForecast()
         => Ok(new { forecast = "sunny" });
@@ -85,7 +86,7 @@ public class WeatherController : ControllerBase
 
 ```csharp
 app.MapGet("/api/premium/data", () => Results.Ok(new { data = "premium" }))
-   .AddEndpointFilter(new L402EndpointFilter(price: 10, description: "API access"));
+   .AddEndpointFilter(new L402EndpointFilter("wal_...", price: 10, description: "API access"));
 ```
 
 ### Dynamic pricing
@@ -93,6 +94,7 @@ app.MapGet("/api/premium/data", () => Results.Ok(new { data = "premium" }))
 ```csharp
 app.UseL402Paywall("/api/dynamic", new L402Options
 {
+    WalletId = "wal_...",
     PriceFactory = context =>
     {
         if (context.Request.Path.StartsWithSegments("/api/dynamic/bulk"))
@@ -106,6 +108,7 @@ app.UseL402Paywall("/api/dynamic", new L402Options
 
 | Option | Type | Description |
 | --- | --- | --- |
+| `WalletId` | `string` | Wallet ID for L402 operations |
 | `Price` | `int` | Price in satoshis per request |
 | `PriceFactory` | `Func<HttpContext, Task<int>>?` | Dynamic pricing callback (takes precedence over `Price`) |
 | `Description` | `string?` | Invoice memo shown in wallets |
@@ -142,6 +145,7 @@ builder.Services.AddSingleton(new LnBotClient("key_..."));
 builder.Services.AddHttpClient("paid-apis")
     .AddL402Handler(new L402ClientOptions
     {
+        WalletId = "wal_...",
         MaxPrice = 100,
         BudgetSats = 50_000,
         BudgetPeriod = BudgetPeriod.Day,
@@ -167,7 +171,7 @@ using Microsoft.Extensions.DependencyInjection;
 var services = new ServiceCollection();
 services.AddSingleton(new LnBotClient("key_..."));
 services.AddSingleton<ITokenStore, MemoryTokenStore>();
-services.AddHttpClient("paid-apis").AddL402Handler();
+services.AddHttpClient("paid-apis").AddL402Handler(new L402ClientOptions { WalletId = "wal_..." });
 
 var provider = services.BuildServiceProvider();
 var http = provider.GetRequiredService<IHttpClientFactory>().CreateClient("paid-apis");
@@ -220,11 +224,11 @@ services.AddSingleton<ITokenStore, RedisTokenStore>();
 ## How It Works
 
 **Server middleware** makes two SDK calls:
-- `client.L402.CreateChallengeAsync()` — creates an invoice + macaroon when a client needs to pay
-- `client.L402.VerifyAsync()` — verifies an L402 authorization token when a client presents one
+- `client.Wallet(walletId).L402.CreateChallengeAsync()` — creates an invoice + macaroon when a client needs to pay
+- `client.Wallet(walletId).L402.VerifyAsync()` — verifies an L402 authorization token when a client presents one
 
 **Client handler** makes one SDK call:
-- `client.L402.PayAsync()` — pays a Lightning invoice and returns a ready-to-use Authorization header
+- `client.Wallet(walletId).L402.PayAsync()` — pays a Lightning invoice and returns a ready-to-use Authorization header
 
 ---
 
