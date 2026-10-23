@@ -24,7 +24,7 @@ public class L402EndpointFilter : IEndpointFilter
     /// <param name="reuse">False: one token, one request. True: a token works until it expires.</param>
     public L402EndpointFilter(string walletId, int price, string? description, int? expirySeconds, List<string>? caveats, bool reuse)
     {
-        L402Handler.ValidateCaveats(caveats, reuse);
+        L402Handler.ValidateCaveats(caveats);
         _walletId = walletId;
         _price = price;
         _description = description;

@@ -155,12 +155,59 @@ public class SingleUseTests
         Assert.True(body.GetProperty("reusable").GetBoolean());
         Assert.False(body.TryGetProperty("expiresAt", out _));
         var minted = Assert.Single(sdk.Challenges);
-        // No binding caveats (the SDK leaves the null field out of the request).
-        Assert.False(minted.TryGetProperty("caveats", out var caveats) && caveats.ValueKind == JsonValueKind.Array);
+        // A pass is bound to the paywall's prefix and price, not to one path.
+        Assert.Equal(
+            new string?[] { "lnbot_pass=/api/premium", "lnbot_price=10" },
+            minted.GetProperty("caveats").EnumerateArray().Select(c => c.GetString()).ToArray());
 
         var token = MintingSdk.TokenFor(1);
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/api/premium/data", token)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/api/premium/data", token)).StatusCode);
+
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task Pass_RefusesSingleUseTokensAndCheaperPasses()
+    {
+        var (host, client, sdk) = await StartAsync(new L402Options { WalletId = "wal_test", Price = 500, Reuse = true });
+
+        foreach (var caveats in new[]
+        {
+            new List<string> { "lnbot_path=/api/premium/data", "lnbot_price=500" }, // a single-use token
+            new List<string> { "lnbot_pass=/api/premium", "lnbot_price=10" },       // a cheaper pass
+            new List<string> { "lnbot_pass=/api/other", "lnbot_price=500" },        // a pass for elsewhere
+        })
+        {
+            sdk.Handler.SetResponse("/l402/verify", new { valid = true, paymentHash = "h", caveats, error = (string?)null });
+            Assert.Equal((HttpStatusCode)402, (await GetAsync(client, "/api/premium/data", "L402 mac:pre")).StatusCode);
+        }
+
+        sdk.Handler.SetResponse("/l402/verify", new
+        {
+            valid = true,
+            paymentHash = "h",
+            caveats = new List<string> { "lnbot_pass=/api/premium", "lnbot_price=500" },
+            error = (string?)null,
+        });
+        Assert.Equal(HttpStatusCode.OK, (await GetAsync(client, "/api/premium/report", "L402 mac:pre")).StatusCode);
+
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task SingleUse_RefusesAPass()
+    {
+        var (host, client, sdk) = await StartAsync(new L402Options { WalletId = "wal_test", Price = 10 });
+        sdk.Handler.SetResponse("/l402/verify", new
+        {
+            valid = true,
+            paymentHash = "h",
+            caveats = new List<string> { "lnbot_pass=/api/premium", "lnbot_price=500" },
+            error = (string?)null,
+        });
+
+        Assert.Equal((HttpStatusCode)402, (await GetAsync(client, "/api/premium/data", "L402 mac:pre")).StatusCode);
 
         await host.StopAsync();
     }
@@ -200,7 +247,8 @@ public class SingleUseTests
         var caveats = Enumerable.Range(0, 9).Select(i => $"k{i}=v").ToList();
 
         Assert.Throws<ArgumentException>(() => new L402EndpointFilter("wal_test", 10, null, null, caveats));
-        _ = new L402EndpointFilter("wal_test", 10, null, null, caveats, reuse: true);
+        Assert.Throws<ArgumentException>(() => new L402EndpointFilter("wal_test", 10, null, null, caveats, reuse: true));
+        _ = new L402EndpointFilter("wal_test", 10, null, null, caveats.Take(8).ToList());
     }
 
     [Fact]

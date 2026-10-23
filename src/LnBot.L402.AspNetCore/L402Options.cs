@@ -23,13 +23,14 @@ public class L402Options
     /// </summary>
     public int? ExpirySeconds { get; set; }
 
-    /// <summary>Macaroon caveats to attach (at most 8 while tokens are single-use).</summary>
+    /// <summary>Macaroon caveats to attach (at most 8: two more bind each token to its paywall and price).</summary>
     public List<string>? Caveats { get; set; }
 
     /// <summary>
     /// False (the default): a token pays for one request. It works once, on the route and at
-    /// the price it was issued for. True: a token keeps working until it expires, on any route
-    /// this paywall guards (a time-boxed pass; the 1.0 behaviour).
+    /// the price it was issued for. True: a token is a pass. It keeps working until it expires,
+    /// on any route under this paywall's path; single-use tokens, and passes for another path
+    /// or a lower price, don't open it.
     /// </summary>
     public bool Reuse { get; set; }
 

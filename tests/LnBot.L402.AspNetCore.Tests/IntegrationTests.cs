@@ -103,6 +103,24 @@ public class IntegrationTests
     }
 
     [Fact]
+    public async Task SingleUseToken_DoesNotOpenThePass()
+    {
+        var (host, client, _) = await StartAsync();
+
+        // Mint a single-use challenge, then present its token to the pass route.
+        using var raw = host.GetTestClient();
+        var challenge = await raw.GetAsync("/api/premium/data");
+        var macaroon = L402Headers.ParseChallenge(challenge.Headers.WwwAuthenticate.ToString())!.Value.Macaroon;
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "/api/pass/data");
+        request.Headers.TryAddWithoutValidation("Authorization", $"L402 {macaroon}:pre");
+        Assert.Equal((HttpStatusCode)402, (await raw.SendAsync(request)).StatusCode);
+
+        client.Dispose();
+        await host.StopAsync();
+    }
+
+    [Fact]
     public async Task Reuse_ClientPaysOnceForAPass()
     {
         var (host, client, payments) = await StartAsync();

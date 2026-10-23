@@ -115,8 +115,8 @@ app.UseL402Paywall("/api/dynamic", new L402Options
 | `PriceFactory` | `Func<HttpContext, Task<int>>?` | Dynamic pricing callback (takes precedence over `Price`) |
 | `Description` | `string?` | Invoice memo shown in wallets |
 | `ExpirySeconds` | `int?` | Token lifetime in seconds. Default `3600`; with `Reuse`, no expiry unless set |
-| `Caveats` | `List<string>?` | Extra macaroon caveats (at most 8 while tokens are single-use) |
-| `Reuse` | `bool` | `false` (default): one token, one request. `true`: a token works until it expires |
+| `Caveats` | `List<string>?` | Extra macaroon caveats (at most 8; two more carry each token's binding) |
+| `Reuse` | `bool` | `false` (default): one token, one request. `true`: a pass for this paywall that works until it expires |
 | `SpentStore` | `ISpentTokenStore?` | Where spent tokens are remembered. Default: one from DI, else in memory |
 
 ### One token, one request
@@ -143,7 +143,7 @@ A token is spent when the request reaches your endpoint, even if the endpoint th
 
 ### Passes: `Reuse = true`
 
-For "pay once, use for an hour", let tokens be reused until they expire. This is how 1.0 behaved, with no route or price binding:
+For "pay once, use for an hour", let tokens be reused until they expire. A pass carries `lnbot_pass=<prefix>` and `lnbot_price=<sats>` caveats instead: it opens any route under the paywall's path prefix (or the endpoint's route, for the attribute and filter), at that price or less. Single-use tokens don't open a pass route, and passes don't open single-use routes:
 
 ```csharp
 app.UseL402Paywall("/api/pass", new L402Options

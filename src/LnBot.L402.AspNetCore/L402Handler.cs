@@ -1,6 +1,7 @@
 using System.Globalization;
 using LnBot.Models;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LnBot.L402;
@@ -11,35 +12,42 @@ namespace LnBot.L402;
 /// <remarks>
 /// By default each token pays for one request: its challenge carries caveats binding it to the
 /// route and price it was issued for, and the paywall remembers it once spent. With
-/// <c>reuse</c> a token works until it expires instead.
+/// <c>reuse</c> a token is a pass instead: bound to the paywall's scope and price, and good
+/// until it expires. Single-use tokens and passes carry different caveats, so neither opens
+/// the other's routes.
 /// </remarks>
 internal static class L402Handler
 {
     /// <summary>Single-use tokens expire after an hour unless the paywall sets otherwise.</summary>
     internal const int DefaultExpirySeconds = 3600;
 
-    /// <summary>The API takes up to 10 caveats; single-use tokens spend two on their binding.</summary>
+    /// <summary>The API takes up to 10 caveats; every token spends two on its binding.</summary>
     internal const int MaxCustomCaveats = 8;
 
     /// <summary>How long a spent token is remembered when it never expires.</summary>
     private static readonly TimeSpan NoExpiryTtl = TimeSpan.FromDays(30);
 
+    /// <summary>A single-use token: good once, on this path.</summary>
     private const string PathCaveat = "lnbot_path=";
+    /// <summary>A pass: good until it expires, on any route under this scope.</summary>
+    private const string PassCaveat = "lnbot_pass=";
+    /// <summary>What the token was paid: good for that price or less.</summary>
     private const string PriceCaveat = "lnbot_price=";
 
-    /// <summary>Throws if a single-use paywall is given more caveats than fit beside its binding.</summary>
-    public static void ValidateCaveats(IReadOnlyCollection<string>? caveats, bool reuse)
+    /// <summary>Throws if a paywall is given more caveats than fit beside its binding.</summary>
+    public static void ValidateCaveats(IReadOnlyCollection<string>? caveats)
     {
-        if (!reuse && caveats?.Count > MaxCustomCaveats)
+        if (caveats?.Count > MaxCustomCaveats)
             throw new ArgumentException(
-                $"At most {MaxCustomCaveats} caveats while tokens are single-use (two bind each token to its route and price).",
+                $"At most {MaxCustomCaveats} caveats (two bind each token to its paywall and price).",
                 nameof(caveats));
     }
 
     /// <summary>
     /// Attempts to verify an L402 token. If valid, populates HttpContext.Items["L402"] and returns true.
-    /// If invalid, spent, or issued for another route or price, issues a 402 challenge and returns false.
+    /// If invalid, spent, or issued for another route, pass or price, issues a 402 challenge and returns false.
     /// </summary>
+    /// <param name="passScope">Where a pass is good (the middleware's path prefix); by default the endpoint's route.</param>
     public static async Task<bool> HandleAsync(
         LnBotClient client,
         string walletId,
@@ -49,12 +57,13 @@ internal static class L402Handler
         int? expirySeconds = null,
         List<string>? caveats = null,
         bool reuse = false,
-        ISpentTokenStore? spentStore = null)
+        ISpentTokenStore? spentStore = null,
+        string? passScope = null)
     {
-        ValidateCaveats(caveats, reuse);
+        ValidateCaveats(caveats);
 
         var expiry = expirySeconds ?? (reuse ? null : DefaultExpirySeconds);
-        var path = PathOf(context);
+        var (kind, where) = reuse ? (PassCaveat, passScope ?? ScopeOf(context)) : (PathCaveat, PathOf(context));
         var authHeader = context.Request.Headers.Authorization.ToString();
 
         if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("L402 "))
@@ -72,10 +81,10 @@ internal static class L402Handler
                 // Verification failed — fall through to issue new challenge
             }
 
-            if (result is { Valid: true, PaymentHash: not null })
+            if (result is { Valid: true, PaymentHash: not null } && Fits(result.Caveats, kind, where, price))
             {
-                var accepted = reuse;
-                if (!reuse && Fits(result.Caveats, path, price))
+                var accepted = true;
+                if (!reuse)
                 {
                     // Spend the token. A store failure is a server error, not a reason to bill again.
                     var store = spentStore
@@ -98,9 +107,7 @@ internal static class L402Handler
             Amount = price,
             Description = description,
             ExpirySeconds = expiry,
-            Caveats = reuse
-                ? caveats
-                : [.. caveats ?? [], PathCaveat + path, PriceCaveat + price.ToString(CultureInfo.InvariantCulture)],
+            Caveats = [.. caveats ?? [], kind + where, PriceCaveat + price.ToString(CultureInfo.InvariantCulture)],
         }, context.RequestAborted);
 
         context.Response.StatusCode = StatusCodes.Status402PaymentRequired;
@@ -133,23 +140,29 @@ internal static class L402Handler
         return string.IsNullOrEmpty(path) ? "/" : path;
     }
 
+    /// <summary>Where a pass is good when no scope is given: the endpoint's route pattern, else the path.</summary>
+    private static string ScopeOf(HttpContext context) =>
+        context.GetEndpoint() is RouteEndpoint { RoutePattern.RawText: { Length: > 0 } pattern }
+            ? (pattern.StartsWith('/') ? pattern : "/" + pattern)
+            : PathOf(context);
+
     /// <summary>
-    /// Whether a token was issued for this request. A holder can add caveats to a macaroon but
-    /// never remove them, so every binding caveat must hold: the path must match, and every price
-    /// must cover this request's price.
+    /// Whether a token was issued for this paywall and request. A holder can add caveats to a
+    /// macaroon but never remove them, so every binding caveat must hold: each <paramref name="kind"/>
+    /// caveat must name <paramref name="where"/>, and every price must cover this request's price.
     /// </summary>
-    private static bool Fits(List<string>? caveats, string path, int price)
+    private static bool Fits(List<string>? caveats, string kind, string where, int price)
     {
         if (caveats is null) return false;
 
-        var paths = caveats.Where(c => c.StartsWith(PathCaveat, StringComparison.Ordinal))
-            .Select(c => c[PathCaveat.Length..]).ToList();
+        var places = caveats.Where(c => c.StartsWith(kind, StringComparison.Ordinal))
+            .Select(c => c[kind.Length..]).ToList();
         var prices = caveats.Where(c => c.StartsWith(PriceCaveat, StringComparison.Ordinal))
             .Select(c => c[PriceCaveat.Length..]).ToList();
 
-        return paths.Count > 0
+        return places.Count > 0
             && prices.Count > 0
-            && paths.All(p => p == path)
+            && places.All(p => p == where)
             && prices.All(p => long.TryParse(p, NumberStyles.None, CultureInfo.InvariantCulture, out var paid) && paid >= price);
     }
 }

@@ -14,7 +14,7 @@ public class L402Middleware
 
     public L402Middleware(RequestDelegate next, LnBotClient client, L402Options options, PathString path)
     {
-        L402Handler.ValidateCaveats(options.Caveats, options.Reuse);
+        L402Handler.ValidateCaveats(options.Caveats);
         _next = next;
         _client = client;
         _options = options;
@@ -33,8 +33,10 @@ public class L402Middleware
             ? await _options.PriceFactory(context)
             : _options.Price;
 
+        // A pass from this paywall is good anywhere under its prefix.
+        var scope = (context.Request.PathBase + _path).Value ?? "/";
         if (await L402Handler.HandleAsync(_client, _options.WalletId, context, price, _options.Description,
-            _options.ExpirySeconds, _options.Caveats, _options.Reuse, _options.SpentStore))
+            _options.ExpirySeconds, _options.Caveats, _options.Reuse, _options.SpentStore, scope))
         {
             await _next(context);
         }
