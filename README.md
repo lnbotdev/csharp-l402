@@ -13,6 +13,8 @@ Two NuGet packages:
 
 Both packages are thin glue layers. All L402 logic — macaroon creation, signature verification, preimage checking — lives in the [ln.bot API](https://ln.bot/docs) via the [`LnBot` SDK](https://www.nuget.org/packages/LnBot). Zero crypto dependencies.
 
+By default each payment buys one request: a token works once, on the route and at the price it was issued for. Set `Reuse = true` for a pass that works until it expires.
+
 ---
 
 ## What is L402?
@@ -47,7 +49,7 @@ using LnBot;
 using LnBot.L402;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton(new LnBotClient("key_..."));
+builder.Services.AddSingleton(new LnBotClient("uk_..."));
 
 var app = builder.Build();
 
@@ -112,8 +114,48 @@ app.UseL402Paywall("/api/dynamic", new L402Options
 | `Price` | `int` | Price in satoshis per request |
 | `PriceFactory` | `Func<HttpContext, Task<int>>?` | Dynamic pricing callback (takes precedence over `Price`) |
 | `Description` | `string?` | Invoice memo shown in wallets |
-| `ExpirySeconds` | `int?` | Challenge expiry in seconds |
-| `Caveats` | `List<string>?` | Macaroon caveats to attach |
+| `ExpirySeconds` | `int?` | Token lifetime in seconds. Default `3600`; with `Reuse`, no expiry unless set |
+| `Caveats` | `List<string>?` | Extra macaroon caveats (at most 8 while tokens are single-use) |
+| `Reuse` | `bool` | `false` (default): one token, one request. `true`: a token works until it expires |
+| `SpentStore` | `ISpentTokenStore?` | Where spent tokens are remembered. Default: one from DI, else in memory |
+
+### One token, one request
+
+By default each payment buys one request. Every challenge carries two caveats, `lnbot_path=<path>` and `lnbot_price=<sats>`, so the token it produces only opens the route it was issued for, at that price or less. A holder can add caveats to a macaroon but never remove them, so a token can't be widened. Tokens expire after an hour unless you set `ExpirySeconds`, and a spent token is remembered until then.
+
+Spent tokens are remembered in memory by default. If your API runs on more than one instance, register one `ISpentTokenStore` they all share, or a token spent on one instance could be spent again on another:
+
+```csharp
+using StackExchange.Redis;
+
+public sealed class RedisSpentTokenStore(IConnectionMultiplexer redis) : ISpentTokenStore
+{
+    // SET NX with an expiry: true only for the first caller
+    public Task<bool> ClaimAsync(string paymentHash, TimeSpan ttl, CancellationToken cancellationToken = default) =>
+        redis.GetDatabase().StringSetAsync($"l402:spent:{paymentHash}", "1", ttl, When.NotExists);
+}
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect("localhost"));
+builder.Services.AddSingleton<ISpentTokenStore, RedisSpentTokenStore>();
+```
+
+A token is spent when the request reaches your endpoint, even if the endpoint then fails.
+
+### Passes: `Reuse = true`
+
+For "pay once, use for an hour", let tokens be reused until they expire. This is how 1.0 behaved, with no route or price binding:
+
+```csharp
+app.UseL402Paywall("/api/pass", new L402Options
+{
+    WalletId = "wal_...",
+    Price = 500,
+    Reuse = true,
+    ExpirySeconds = 3600, // without it, a reusable token never expires
+});
+```
+
+The `[L402]` attribute takes `Reuse = true` too, and `L402EndpointFilter` takes `reuse: true`.
 
 ### Accessing L402 data after verification
 
@@ -140,7 +182,7 @@ app.MapGet("/api/premium/data", (HttpContext context) =>
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton(new LnBotClient("key_..."));
+builder.Services.AddSingleton(new LnBotClient("uk_..."));
 
 builder.Services.AddHttpClient("paid-apis")
     .AddL402Handler(new L402ClientOptions
@@ -169,7 +211,7 @@ using LnBot.L402;
 using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
-services.AddSingleton(new LnBotClient("key_..."));
+services.AddSingleton(new LnBotClient("uk_..."));
 services.AddSingleton<ITokenStore, MemoryTokenStore>();
 services.AddHttpClient("paid-apis").AddL402Handler(new L402ClientOptions { WalletId = "wal_..." });
 
@@ -227,8 +269,12 @@ services.AddSingleton<ITokenStore, RedisTokenStore>();
 - `client.Wallet(walletId).L402.CreateChallengeAsync()` — creates an invoice + macaroon when a client needs to pay
 - `client.Wallet(walletId).L402.VerifyAsync()` — verifies an L402 authorization token when a client presents one
 
+Then it checks that the token was issued for this route and price, and marks it spent (unless `Reuse` is set).
+
 **Client handler** makes one SDK call:
 - `client.Wallet(walletId).L402.PayAsync()` — pays a Lightning invoice and returns a ready-to-use Authorization header
+
+Before paying, it reads the amount from the invoice itself and checks it against `MaxPrice` and the budget. What the server says its price is doesn't count: the invoice is what gets paid, and an invoice without an amount is refused. It caches a token only if the server marks it reusable. The budget is kept in memory, so it starts again from zero when the process restarts; to cap what an agent can spend in total, fund its wallet with only that much.
 
 ---
 

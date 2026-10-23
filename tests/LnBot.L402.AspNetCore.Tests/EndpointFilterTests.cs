@@ -15,7 +15,7 @@ public class EndpointFilterTests
     {
         var sdkHandler = new MockSdkHandler();
         var sdkHttpClient = new HttpClient(sdkHandler) { BaseAddress = new Uri("https://api.ln.bot") };
-        var lnClient = new LnBotClient("key_test", new LnBotClientOptions { HttpClient = sdkHttpClient });
+        var lnClient = new LnBotClient("uk_test", new LnBotClientOptions { HttpClient = sdkHttpClient });
 
         var host = new HostBuilder()
             .ConfigureWebHost(webBuilder =>
@@ -24,6 +24,7 @@ public class EndpointFilterTests
                 webBuilder.ConfigureServices(services =>
                 {
                     services.AddSingleton(lnClient);
+                    services.AddSingleton<ISpentTokenStore>(new MemorySpentTokenStore());
                     services.AddRouting();
                 });
                 webBuilder.Configure(app =>
@@ -73,7 +74,7 @@ public class EndpointFilterTests
         {
             valid = true,
             paymentHash = "hash",
-            caveats = (List<string>?)null,
+            caveats = new List<string> { "lnbot_path=/api/filtered", "lnbot_price=25" },
             error = (string?)null,
         });
 

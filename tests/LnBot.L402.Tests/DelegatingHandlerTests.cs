@@ -81,7 +81,7 @@ public class DelegatingHandlerTests
                 {
                     Content = new StringContent(JsonSerializer.Serialize(new { price = 10 }, JsonOptions))
                 };
-                challengeRes.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"inv\"");
+                challengeRes.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"lnbc100n1pjtestdata\"");
                 return challengeRes;
             }
             // Retry: 200
@@ -142,7 +142,7 @@ public class DelegatingHandlerTests
             {
                 Content = new StringContent(JsonSerializer.Serialize(new { price = 500 }, JsonOptions))
             };
-            res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"inv\"");
+            res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"lnbc5000n1pjtestdata\"");
             return res;
         });
 
@@ -192,7 +192,7 @@ public class DelegatingHandlerTests
             {
                 Content = new StringContent(JsonSerializer.Serialize(new { price = 10 }, JsonOptions))
             };
-            res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"inv\"");
+            res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"lnbc100n1pjtestdata\"");
             return res;
         });
 
@@ -224,7 +224,7 @@ public class DelegatingHandlerTests
             {
                 Content = new StringContent(JsonSerializer.Serialize(new { price = 10 }, JsonOptions))
             };
-            res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"inv\"");
+            res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"lnbc100n1pjtestdata\"");
             return res;
         });
 
@@ -232,6 +232,129 @@ public class DelegatingHandlerTests
 
         var ex = await Assert.ThrowsAsync<L402PaymentFailedException>(() => http.GetAsync("/stuck"));
         Assert.Contains("402 after successful payment", ex.Message);
+    }
+
+    /// <summary>A 402 whose body claims a price and whose invoice asks for another.</summary>
+    private static HttpResponseMessage Challenge(object body, string invoice)
+    {
+        var res = new HttpResponseMessage((HttpStatusCode)402)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body, JsonOptions)),
+        };
+        res.Headers.WwwAuthenticate.ParseAdd($"L402 macaroon=\"mac\", invoice=\"{invoice}\"");
+        return res;
+    }
+
+    private static void SetPayment(MockSdkHandler sdk, int amount) =>
+        sdk.SetResponse("/l402/pay", new
+        {
+            authorization = "L402 mac:pre",
+            paymentHash = "hash",
+            preimage = "pre",
+            amount,
+            fee = 0,
+            paymentNumber = 1,
+            status = "settled",
+        });
+
+    [Fact]
+    public async Task MaxPrice_CheckedAgainstTheInvoice_NotTheServersClaim()
+    {
+        var (lnClient, _) = CreateMockSdk();
+        var inner = new MockInnerHandler();
+        // The body understates the price; the invoice asks for 500.
+        inner.SetHandler(_ => Challenge(new { price = 10 }, "lnbc5000n1pjtestdata"));
+
+        using var http = CreateTestClient(inner, lnClient, new L402ClientOptions { WalletId = "wal_test", MaxPrice = 100 });
+
+        var ex = await Assert.ThrowsAsync<L402BudgetExceededException>(() => http.GetAsync("/premium"));
+        Assert.Equal("Price 500 sats exceeds MaxPrice 100", ex.Message);
+    }
+
+    [Fact]
+    public async Task InvoiceWithoutAmount_IsRefused()
+    {
+        var (lnClient, _) = CreateMockSdk();
+        var inner = new MockInnerHandler();
+        inner.SetHandler(_ => Challenge(new { price = 10 }, "lnbc1pjtestdata"));
+
+        using var http = CreateTestClient(inner, lnClient);
+
+        var ex = await Assert.ThrowsAsync<L402Exception>(() => http.GetAsync("/premium"));
+        Assert.Contains("no amount", ex.Message);
+    }
+
+    [Fact]
+    public async Task ChallengeWithoutJsonBody_StillPaysTheInvoice()
+    {
+        var (lnClient, sdkHandler) = CreateMockSdk();
+        SetPayment(sdkHandler, 10);
+        var inner = new MockInnerHandler();
+        var calls = 0;
+        inner.SetHandler(_ =>
+        {
+            calls++;
+            if (calls == 1)
+            {
+                var res = new HttpResponseMessage((HttpStatusCode)402) { Content = new StringContent("Payment required") };
+                res.Headers.WwwAuthenticate.ParseAdd("L402 macaroon=\"mac\", invoice=\"lnbc100n1pjtestdata\"");
+                return res;
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"data\":\"premium\"}") };
+        });
+
+        using var http = CreateTestClient(inner, lnClient);
+        var ok = await http.GetAsync("/premium");
+
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+    }
+
+    [Fact]
+    public async Task SingleUseToken_IsNotCached()
+    {
+        var (lnClient, sdkHandler) = CreateMockSdk();
+        SetPayment(sdkHandler, 5);
+        var inner = new MockInnerHandler();
+        var requests = new List<HttpRequestMessage>();
+        inner.SetHandler(req =>
+        {
+            requests.Add(req);
+            return requests.Count % 2 == 1
+                ? Challenge(new { price = 5, reusable = false }, "lnbc50n1pjtestdata")
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+
+        using var http = CreateTestClient(inner, lnClient);
+        await http.GetAsync("/premium");
+        var second = await http.GetAsync("/premium");
+
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        // Each request: one plain attempt (402) and one paid retry. No stale token in between.
+        Assert.Equal(4, requests.Count);
+        Assert.False(requests[2].Headers.Contains("Authorization"));
+    }
+
+    [Fact]
+    public async Task ReusableToken_IsCachedAndSentAgain()
+    {
+        var (lnClient, sdkHandler) = CreateMockSdk();
+        SetPayment(sdkHandler, 5);
+        var inner = new MockInnerHandler();
+        var requests = new List<HttpRequestMessage>();
+        inner.SetHandler(req =>
+        {
+            requests.Add(req);
+            return requests.Count == 1
+                ? Challenge(new { price = 5, reusable = true }, "lnbc50n1pjtestdata")
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+        });
+
+        using var http = CreateTestClient(inner, lnClient);
+        await http.GetAsync("/premium");
+        await http.GetAsync("/premium");
+
+        Assert.Equal(3, requests.Count);
+        Assert.Equal("L402 mac:pre", requests[2].Headers.GetValues("Authorization").Single());
     }
 }
 

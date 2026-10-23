@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using LnBot.Models;
 
@@ -60,16 +61,18 @@ public class L402DelegatingHandler : DelegatingHandler
         if (string.IsNullOrEmpty(wwwAuth) || !wwwAuth.StartsWith("L402 "))
             throw new L402Exception("402 response missing L402 WWW-Authenticate header");
 
-        // Parse body for price info
-        var body = await response.Content.ReadFromJsonAsync<L402ChallengeBody>(
-            cancellationToken: cancellationToken);
-        var price = body?.Price ?? 0;
+        var challenge = L402Headers.ParseChallenge(wwwAuth)
+            ?? throw new L402Exception("Could not parse L402 challenge");
+        var body = await ReadChallengeBodyAsync(response, cancellationToken);
 
-        // Step 4: Budget checks
+        // Step 4: Budget checks, against the amount the invoice itself asks for
+        // (a server's own claim about its price isn't what gets paid)
+        var price = Bolt11.AmountSats(challenge.Invoice)
+            ?? throw new L402Exception("The 402 invoice has no amount; refusing to pay it");
         if (price > _options.MaxPrice)
             throw new L402BudgetExceededException(
                 $"Price {price} sats exceeds MaxPrice {_options.MaxPrice}");
-        _budget.Check(price);
+        _budget.Check((int)price);
 
         // Step 5: Pay via SDK
         var payment = await _client.Wallet(_options.WalletId).L402.PayAsync(new PayL402Request
@@ -82,15 +85,17 @@ public class L402DelegatingHandler : DelegatingHandler
         if (payment.Authorization is null)
             throw new L402PaymentFailedException("Payment did not return authorization token");
 
-        // Step 6: Cache the token
-        await _store.SetAsync(url, new L402Token
+        // Step 6: Cache the token, unless the server says it works only once
+        if (body?.Reusable != false)
         {
-            Authorization = payment.Authorization,
-            PaidAt = DateTimeOffset.UtcNow,
-            ExpiresAt = body?.Expiry is > 0
-                ? DateTimeOffset.UtcNow.AddSeconds(body.Expiry.Value)
-                : null,
-        });
+            await _store.SetAsync(url, new L402Token
+            {
+                Authorization = payment.Authorization,
+                PaidAt = DateTimeOffset.UtcNow,
+                ExpiresAt = body?.ExpiresAt
+                    ?? (body?.Expiry is > 0 ? DateTimeOffset.UtcNow.AddSeconds(body.Expiry.Value) : null),
+            });
+        }
         _budget.Record((int)payment.Amount);
 
         // Step 7: Retry with L402 Authorization
@@ -125,12 +130,34 @@ public class L402DelegatingHandler : DelegatingHandler
 
         return clone;
     }
+
+    /// <summary>The 402's JSON body, or null when it has none: only the invoice is required.</summary>
+    private static async Task<L402ChallengeBody?> ReadChallengeBodyAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await response.Content.ReadFromJsonAsync<L402ChallengeBody>(cancellationToken: cancellationToken);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            return null;
+        }
+    }
 }
 
 internal class L402ChallengeBody
 {
     [JsonPropertyName("price")]
     public int? Price { get; set; }
+
+    /// <summary>False when the server accepts a token only once (no point caching it).</summary>
+    [JsonPropertyName("reusable")]
+    public bool? Reusable { get; set; }
+
+    [JsonPropertyName("expiresAt")]
+    public DateTimeOffset? ExpiresAt { get; set; }
 
     [JsonPropertyName("expiry")]
     public int? Expiry { get; set; }

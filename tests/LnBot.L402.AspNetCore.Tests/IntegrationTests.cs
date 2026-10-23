@@ -12,50 +12,40 @@ namespace LnBot.L402.AspNetCore.Tests;
 
 public class IntegrationTests
 {
-    /// <summary>
-    /// Full roundtrip: L402 client hits protected server → gets 402 → auto-pays → retries → gets 200.
-    /// </summary>
-    [Fact]
-    public async Task FullRoundtrip_ClientPaysAndAccessesProtectedRoute()
+    /// <summary>A server with a pay-per-request route and a reusable pass, and an auto-paying client.</summary>
+    private static async Task<(IHost Host, HttpClient Client, Func<int> Payments)> StartAsync()
     {
-        // ── Server-side SDK mock (createChallenge + verify) ──
-        var serverSdkHandler = new MockSdkHandler();
-        var serverSdkHttp = new HttpClient(serverSdkHandler) { BaseAddress = new Uri("https://api.ln.bot") };
-        var serverLnClient = new LnBotClient("key_server", new LnBotClientOptions { HttpClient = serverSdkHttp });
-
-        serverSdkHandler.SetResponse("/l402/challenges", new
+        // ── Server-side SDK: mints challenges, verifies tokens with their caveats ──
+        var serverSdk = new MintingSdk();
+        var serverLnClient = new LnBotClient("uk_server", new LnBotClientOptions
         {
-            macaroon = "test_mac",
-            invoice = "lnbc10n1test",
-            paymentHash = "test_hash",
-            expiresAt = "2099-01-01T00:00:00Z",
-            wwwAuthenticate = "L402 macaroon=\"test_mac\", invoice=\"lnbc10n1test\"",
-        });
-        serverSdkHandler.SetResponse("/l402/verify", new
-        {
-            valid = true,
-            paymentHash = "test_hash",
-            caveats = (List<string>?)null,
-            error = (string?)null,
+            HttpClient = new HttpClient(serverSdk.Handler) { BaseAddress = new Uri("https://api.ln.bot") },
         });
 
-        // ── Client-side SDK mock (pay) ──
+        // ── Client-side SDK: paying yields "L402 <macaroon>:pre" ──
+        var payments = 0;
         var clientSdkHandler = new MockSdkHandler();
-        var clientSdkHttp = new HttpClient(clientSdkHandler) { BaseAddress = new Uri("https://api.ln.bot") };
-        var clientLnClient = new LnBotClient("key_client", new LnBotClientOptions { HttpClient = clientSdkHttp });
-
-        clientSdkHandler.SetResponse("/l402/pay", new
+        clientSdkHandler.SetHandler("/l402/pay", request =>
         {
-            authorization = "L402 test_mac:test_preimage",
-            paymentHash = "test_hash",
-            preimage = "test_preimage",
-            amount = 10,
-            fee = 0,
-            paymentNumber = 1,
-            status = "settled",
+            payments++;
+            var body = JsonSerializer.Deserialize<JsonElement>(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+            var macaroon = L402Headers.ParseChallenge(body.GetProperty("wwwAuthenticate").GetString())!.Value.Macaroon;
+            return new
+            {
+                authorization = $"L402 {macaroon}:pre",
+                paymentHash = macaroon["mac_".Length..],
+                preimage = "pre",
+                amount = 10,
+                fee = 0,
+                paymentNumber = payments,
+                status = "settled",
+            };
+        });
+        var clientLnClient = new LnBotClient("uk_client", new LnBotClientOptions
+        {
+            HttpClient = new HttpClient(clientSdkHandler) { BaseAddress = new Uri("https://api.ln.bot") },
         });
 
-        // ── Server ──
         var host = new HostBuilder()
             .ConfigureWebHost(webBuilder =>
             {
@@ -63,21 +53,18 @@ public class IntegrationTests
                 webBuilder.ConfigureServices(services =>
                 {
                     services.AddSingleton(serverLnClient);
+                    services.AddSingleton<ISpentTokenStore>(new MemorySpentTokenStore());
                     services.AddRouting();
                 });
                 webBuilder.Configure(app =>
                 {
                     app.UseRouting();
-                    app.UseL402Paywall("/api/premium", new L402Options
-                    {
-                        WalletId = "wal_test",
-                        Price = 10,
-                        Description = "Premium API",
-                    });
+                    app.UseL402Paywall("/api/premium", new L402Options { WalletId = "wal_test", Price = 10, Description = "Premium API" });
+                    app.UseL402Paywall("/api/pass", new L402Options { WalletId = "wal_test", Price = 10, Reuse = true, ExpirySeconds = 600 });
                     app.UseEndpoints(endpoints =>
                     {
-                        endpoints.MapGet("/api/premium/data", () =>
-                            Results.Ok(new { data = "premium content" }));
+                        endpoints.MapGet("/api/premium/data", () => Results.Ok(new { data = "premium content" }));
+                        endpoints.MapGet("/api/pass/data", () => Results.Ok(new { data = "pass content" }));
                     });
                 });
             })
@@ -85,7 +72,6 @@ public class IntegrationTests
 
         await host.StartAsync();
 
-        // ── Client with L402 auto-pay ──
         var testServer = host.GetTestServer();
         var l402Handler = new L402DelegatingHandler(
             clientLnClient,
@@ -94,15 +80,38 @@ public class IntegrationTests
         {
             InnerHandler = testServer.CreateHandler(),
         };
-        using var client = new HttpClient(l402Handler) { BaseAddress = testServer.BaseAddress };
+        var client = new HttpClient(l402Handler) { BaseAddress = testServer.BaseAddress };
+        return (host, client, () => payments);
+    }
 
-        // Step 1: First request — should auto-pay the 402 and get 200
+    /// <summary>Full roundtrip: 402, auto-pay, retry, 200. And the next request pays again.</summary>
+    [Fact]
+    public async Task FullRoundtrip_ClientPaysForEachRequest()
+    {
+        var (host, client, payments) = await StartAsync();
+
         var res = await client.GetAsync("/api/premium/data");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-
         var body = JsonSerializer.Deserialize<JsonElement>(await res.Content.ReadAsStringAsync());
         Assert.Equal("premium content", body.GetProperty("data").GetString());
 
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/premium/data")).StatusCode);
+        Assert.Equal(2, payments());
+
+        client.Dispose();
+        await host.StopAsync();
+    }
+
+    [Fact]
+    public async Task Reuse_ClientPaysOnceForAPass()
+    {
+        var (host, client, payments) = await StartAsync();
+
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/pass/data")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/pass/data")).StatusCode);
+        Assert.Equal(1, payments());
+
+        client.Dispose();
         await host.StopAsync();
     }
 }

@@ -32,7 +32,7 @@ using LnBot;
 using LnBot.L402;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton(new LnBotClient("key_..."));
+builder.Services.AddSingleton(new LnBotClient("uk_..."));
 
 builder.Services.AddHttpClient("paid-apis")
     .AddL402Handler(new L402ClientOptions
@@ -60,7 +60,7 @@ using LnBot.L402;
 using Microsoft.Extensions.DependencyInjection;
 
 var services = new ServiceCollection();
-services.AddSingleton(new LnBotClient("key_..."));
+services.AddSingleton(new LnBotClient("uk_..."));
 services.AddSingleton<ITokenStore, MemoryTokenStore>();
 services.AddHttpClient("paid-apis").AddL402Handler();
 
@@ -78,9 +78,10 @@ Console.WriteLine(response);
 
 | Property | Type | Default | Description |
 |---|---|---|---|
-| `MaxPrice` | `int` | `int.MaxValue` | Max sats per request. Throws `L402BudgetExceededException` if exceeded. |
-| `BudgetSats` | `long` | `0` (unlimited) | Rolling spend limit in sats. |
-| `BudgetPeriod` | `BudgetPeriod` | `Day` | Reset interval: `Minute`, `Hour`, `Day`. |
+| `WalletId` | `string` | | Wallet that pays |
+| `MaxPrice` | `int` | `1000` | Max sats per request, read from the invoice. Throws `L402BudgetExceededException` if exceeded. |
+| `BudgetSats` | `int` | `int.MaxValue` (unlimited) | Spend limit in sats per period, kept in memory. |
+| `BudgetPeriod` | `BudgetPeriod` | `Day` | Reset interval: `Hour`, `Day`, `Week`, `Month`. |
 
 ---
 
@@ -119,9 +120,12 @@ L402Headers.FormatChallenge("mac", "lnbc1...");
 The `L402DelegatingHandler` intercepts `HttpClient` responses:
 
 1. If the response is `402`, it reads the `WWW-Authenticate` header
-2. Calls `client.L402.PayAsync()` to pay the Lightning invoice via the [ln.bot API](https://ln.bot/docs)
-3. Retries the request with the `Authorization: L402 <macaroon>:<preimage>` header
-4. Caches the token for future requests to the same URL
+2. Reads the amount from the invoice itself and checks it against `MaxPrice` and the budget (what the server says its price is doesn't count, and an invoice without an amount is refused)
+3. Calls `client.Wallet(walletId).L402.PayAsync()` to pay the Lightning invoice via the [ln.bot API](https://ln.bot/docs)
+4. Retries the request with the `Authorization: L402 <macaroon>:<preimage>` header
+5. Caches the token for future requests to the same URL, unless the server marked it single-use
+
+The budget is kept in memory, so it starts again from zero when the process restarts. To cap what an agent can spend in total, fund its wallet with only that much.
 
 Zero crypto dependencies — all L402 logic lives in the [ln.bot API](https://ln.bot/docs).
 

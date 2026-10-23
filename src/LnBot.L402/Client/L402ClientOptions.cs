@@ -6,10 +6,10 @@ public class L402ClientOptions
     /// <summary>LnBot wallet ID to use for L402 payments.</summary>
     public string WalletId { get; set; } = "";
 
-    /// <summary>Max sats to pay for a single request. Default: 1000.</summary>
+    /// <summary>Max sats to pay for a single request, read from the invoice itself. Default: 1000.</summary>
     public int MaxPrice { get; set; } = 1000;
 
-    /// <summary>Total budget in sats for the period. Default: unlimited.</summary>
+    /// <summary>Total budget in sats for the period, kept in memory (it restarts with the process). Default: unlimited.</summary>
     public int BudgetSats { get; set; } = int.MaxValue;
 
     /// <summary>Budget reset period. Default: Day.</summary>

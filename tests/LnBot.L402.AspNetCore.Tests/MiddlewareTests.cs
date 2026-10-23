@@ -16,7 +16,7 @@ public class MiddlewareTests
     {
         var sdkHandler = new MockSdkHandler();
         var sdkHttpClient = new HttpClient(sdkHandler) { BaseAddress = new Uri("https://api.ln.bot") };
-        var lnClient = new LnBotClient("key_test", new LnBotClientOptions { HttpClient = sdkHttpClient });
+        var lnClient = new LnBotClient("uk_test", new LnBotClientOptions { HttpClient = sdkHttpClient });
 
         var host = new HostBuilder()
             .ConfigureWebHost(webBuilder =>
@@ -25,6 +25,7 @@ public class MiddlewareTests
                 webBuilder.ConfigureServices(services =>
                 {
                     services.AddSingleton(lnClient);
+                    services.AddSingleton<ISpentTokenStore>(new MemorySpentTokenStore());
                     services.AddRouting();
                 });
                 webBuilder.Configure(app =>
@@ -102,7 +103,7 @@ public class MiddlewareTests
         {
             valid = true,
             paymentHash = "hash123",
-            caveats = (List<string>?)null,
+            caveats = new List<string> { "lnbot_path=/api/premium/data", "lnbot_price=10" },
             error = (string?)null,
         });
 

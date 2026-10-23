@@ -14,6 +14,7 @@ public class L402Middleware
 
     public L402Middleware(RequestDelegate next, LnBotClient client, L402Options options, PathString path)
     {
+        L402Handler.ValidateCaveats(options.Caveats, options.Reuse);
         _next = next;
         _client = client;
         _options = options;
@@ -32,7 +33,8 @@ public class L402Middleware
             ? await _options.PriceFactory(context)
             : _options.Price;
 
-        if (await L402Handler.HandleAsync(_client, _options.WalletId, context, price, _options.Description, _options.ExpirySeconds, _options.Caveats))
+        if (await L402Handler.HandleAsync(_client, _options.WalletId, context, price, _options.Description,
+            _options.ExpirySeconds, _options.Caveats, _options.Reuse, _options.SpentStore))
         {
             await _next(context);
         }

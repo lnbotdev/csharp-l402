@@ -34,7 +34,7 @@ using LnBot;
 using LnBot.L402;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddSingleton(new LnBotClient("key_..."));
+builder.Services.AddSingleton(new LnBotClient("uk_..."));
 
 var app = builder.Build();
 
@@ -78,6 +78,7 @@ app.MapGet("/api/premium/data", () => Results.Ok(new { data = "premium" }))
 ```csharp
 app.UseL402Paywall("/api/dynamic", new L402Options
 {
+    WalletId = "wal_...",
     PriceFactory = context =>
     {
         if (context.Request.Path.StartsWithSegments("/api/dynamic/bulk"))
@@ -87,14 +88,54 @@ app.UseL402Paywall("/api/dynamic", new L402Options
 });
 ```
 
+### One token, one request
+
+By default each payment buys one request. Every challenge carries two caveats, `lnbot_path=<path>` and `lnbot_price=<sats>`, so the token it produces only opens the route it was issued for, at that price or less. A holder can add caveats to a macaroon but never remove them, so a token can't be widened. Tokens expire after an hour unless you set `ExpirySeconds`, and a spent token is remembered until then.
+
+Spent tokens are remembered in memory by default. If your API runs on more than one instance, register one `ISpentTokenStore` they all share, or a token spent on one instance could be spent again on another:
+
+```csharp
+using StackExchange.Redis;
+
+public sealed class RedisSpentTokenStore(IConnectionMultiplexer redis) : ISpentTokenStore
+{
+    // SET NX with an expiry: true only for the first caller
+    public Task<bool> ClaimAsync(string paymentHash, TimeSpan ttl, CancellationToken cancellationToken = default) =>
+        redis.GetDatabase().StringSetAsync($"l402:spent:{paymentHash}", "1", ttl, When.NotExists);
+}
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect("localhost"));
+builder.Services.AddSingleton<ISpentTokenStore, RedisSpentTokenStore>();
+```
+
+A token is spent when the request reaches your endpoint, even if the endpoint then fails.
+
+### Passes: `Reuse = true`
+
+For "pay once, use for an hour", let tokens be reused until they expire. This is how 1.0 behaved, with no route or price binding:
+
+```csharp
+app.UseL402Paywall("/api/pass", new L402Options
+{
+    WalletId = "wal_...",
+    Price = 500,
+    Reuse = true,
+    ExpirySeconds = 3600, // without it, a reusable token never expires
+});
+```
+
+The `[L402]` attribute takes `Reuse = true` too, and `L402EndpointFilter` takes `reuse: true`.
+
 ---
 
 ## How It Works
 
 The middleware makes two SDK calls:
 
-- `client.L402.CreateChallengeAsync()` — creates an invoice + macaroon when a client needs to pay
-- `client.L402.VerifyAsync()` — verifies an L402 authorization token when a client presents one
+- `client.Wallet(walletId).L402.CreateChallengeAsync()` — creates an invoice + macaroon when a client needs to pay
+- `client.Wallet(walletId).L402.VerifyAsync()` — verifies an L402 authorization token when a client presents one
+
+Then it checks that the token was issued for this route and price, and marks it spent (unless `Reuse` is set).
 
 All L402 logic — macaroon creation, signature verification, preimage checking — lives in the [ln.bot API](https://ln.bot/docs). Zero crypto dependencies.
 
